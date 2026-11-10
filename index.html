@@ -64,7 +64,7 @@ button:focus-visible, .sen-chip input:focus-visible + span, .sen-dl:focus-visibl
 .sen-panel h2 { margin: 0 0 6px; font-size: 1rem; font-weight: 600; }
 .sen-plot { display: grid; grid-template-columns: minmax(0, 1fr) minmax(170px, 230px); gap: 14px; align-items: start; }
 .sen-chart { position: relative; min-width: 0; }
-.sen-chart svg { display: block; width: 100%; height: 300px; overflow: visible; }
+.sen-chart svg { display: block; width: 100%; height: 300px; overflow: visible; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 .sen-chart .tick text { fill: var(--fg-2); font-size: 11px; font-family: var(--sans); }
 .sen-chart .tick line { stroke: var(--grid); }
 .sen-chart .domain { stroke: var(--axis); }
@@ -79,6 +79,8 @@ button:focus-visible, .sen-chip input:focus-visible + span, .sen-dl:focus-visibl
 .sen-tip .r { display: flex; gap: 10px; justify-content: space-between; font-variant-numeric: tabular-nums; }
 .sen-tip .r i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
 .sen-empty { color: var(--fg-2); padding: 24px 0; margin: 0; }
+.sen-hint { margin: -12px 0 0; font-size: .8rem; color: var(--fg-2); max-width: 75ch; }
+.sen-hint kbd { font: inherit; font-size: .75rem; padding: 1px 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; background: var(--bg); color: var(--fg); }
 .sen-table { font-size: .82rem; }
 .sen-table summary { cursor: pointer; color: var(--fg-2); }
 .sen-table .wrap { overflow-x: auto; margin-top: 10px; max-height: 420px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); }
@@ -142,6 +144,7 @@ button:focus-visible, .sen-chip input:focus-visible + span, .sen-dl:focus-visibl
   </div>
 
   <p class="sen-lede" id="periodo">Mostrando <b id="rango">—</b>.</p>
+  <p class="sen-hint" id="ayuda-zoom">Zoom en las gráficas: con el ratón, mantén pulsada <kbd>Ctrl</kbd> y gira la rueda sobre una gráfica para ampliar o reducir el período, y arrastra para desplazarte. En el móvil, pellizca con dos dedos para ampliar o reducir, y desliza con dos dedos para desplazarte. El período va de una semana como mínimo a todos los datos como máximo.</p>
 
   <div class="sen-charts" id="graficas"><p class="sen-empty">Cargando…</p></div>
 
@@ -429,10 +432,15 @@ button:focus-visible, .sen-chip input:focus-visible + span, .sen-dl:focus-visibl
         tip.style.left = (sx + 12 + tw > pw ? Math.max(0, sx - tw - 12) : sx + 12) + 'px';
         tip.style.top = '8px';
       };
-      svg.append('rect').attr('x', ML).attr('y', M.top).attr('width', W - ML - M.right).attr('height', H - M.top - M.bottom)
+      const hide = () => { guide.attr('opacity', 0); tip.hidden = true; };
+      HIDERS.push(hide);
+      GEO[G.id] = {W, ML, PW: W - ML - M.right};
+      const ov = svg.append('rect').attr('x', ML).attr('y', M.top).attr('width', W - ML - M.right).attr('height', H - M.top - M.bottom)
         .attr('fill', 'transparent').style('cursor', 'crosshair')
-        .on('pointermove', show).on('pointerdown', show)
-        .on('pointerleave', () => { guide.attr('opacity', 0); tip.hidden = true; });
+        .on('pointermove', (ev) => { if (!gestureActive()) show(ev); })
+        .on('pointerdown', (ev) => { startGesture(ev, G.id); if (!gestureActive()) show(ev); })
+        .on('pointerleave', hide);
+      ov.node().addEventListener('wheel', (ev) => onWheel(ev, G.id), {passive: false});
     }
     drawnOnce = true;
   };
@@ -459,11 +467,114 @@ button:focus-visible, .sen-chip input:focus-visible + span, .sen-dl:focus-visibl
     wrap.append(t);
   };
 
-  function render() {
+  // ---------- Zoom y desplazamiento en las gráficas ----------
+  // Ratón: Ctrl + rueda amplía o reduce alrededor del puntero; arrastrar desplaza el período.
+  // Móvil: pellizcar con dos dedos amplía o reduce; deslizar con dos dedos desplaza.
+  // Un dedo sigue mostrando la descripción emergente. Período mínimo: 7 días; máximo: todos los datos.
+  const DAY = 864e5, PAD = 12 * 3600e3;
+  const GEO = {};          // geometría de cada gráfica (en unidades del viewBox)
+  let HIDERS = [];         // funciones que ocultan las descripciones emergentes
+  let VIEW = null;         // período sin redondear, para que el zoom sea suave
+  const touches = new Map();
+  let PINCH = null, DRAG = null;
+  const gestureActive = () => !!PINCH || !!(DRAG && DRAG.moved);
+  const hideTips = () => HIDERS.forEach((h) => h());
+
+  const bounds = () => ({first: +parseIso(ROWS[0]['Fecha del parte']), last: +parseIso(ROWS[ROWS.length - 1]['Fecha del parte'])});
+  const currentView = () => {
+    const R = range();
+    if (VIEW && iso(d3.utcDay.round(new Date(VIEW.from))) === iso(R.from) && iso(d3.utcDay.round(new Date(VIEW.from + VIEW.span))) === iso(R.to)) return {...VIEW};
+    return {from: +R.from, span: R.to - R.from};
+  };
+  const clampSpan = (span) => { const {first, last} = bounds(); const full = last - first; return Math.max(Math.min(6 * DAY, full), Math.min(full, span)); };
+  const applyView = (from, span) => {
+    const {first, last} = bounds();
+    span = clampSpan(span);
+    from = Math.max(first, Math.min(last - span, from));
+    VIEW = {from, span};
+    const f = d3.utcDay.round(new Date(from)), t = d3.utcDay.round(new Date(from + span));
+    if (+f === first && +t === last) { S.preset = 'all'; S.from = null; S.to = null; }
+    else { S.preset = 'custom'; S.from = iso(f); S.to = iso(t); }
+    schedule();
+  };
+  // Fracción (0 a 1) del ancho del área de dibujo que ocupa una coordenada de pantalla.
+  const frac = (id, clientX) => {
+    const g = GEO[id]; const svg = document.querySelector('#grafica-' + id + ' svg');
+    if (!g || !svg) return 0.5;
+    const r = svg.getBoundingClientRect();
+    const px = (clientX - r.left) * g.W / (r.width || g.W);
+    return Math.max(0, Math.min(1, (px - g.ML) / g.PW));
+  };
+  const dateAt = (v, f) => v.from - PAD + f * (v.span + 2 * PAD);
+  const fromFor = (a, f, span) => a + PAD - f * (span + 2 * PAD);
+
+  function onWheel(ev, id) {
+    if (!(ev.ctrlKey || ev.metaKey) || !ROWS.length) return;   // sin Ctrl, la rueda desplaza la página
+    ev.preventDefault();
+    const v = currentView(), f = frac(id, ev.clientX), a = dateAt(v, f);
+    const dy = ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaY;
+    const span = clampSpan(v.span * Math.exp(dy * 0.0015));
+    applyView(fromFor(a, f, span), span);
+  }
+
+  function startGesture(ev, id) {
+    if (!ROWS.length) return;
+    if (ev.pointerType === 'touch') {
+      touches.set(ev.pointerId, {x: ev.clientX, y: ev.clientY});
+      if (touches.size === 2) {
+        const [p, q] = [...touches.values()];
+        const v = currentView(), f = frac(id, (p.x + q.x) / 2);
+        PINCH = {id, span: v.span, dist: Math.max(10, Math.hypot(p.x - q.x, p.y - q.y)), a: dateAt(v, f)};
+        hideTips();
+      }
+    } else if (ev.pointerType === 'mouse' && ev.button === 0) {
+      DRAG = {id, x: ev.clientX, v: currentView(), moved: false};
+    }
+  }
+  window.addEventListener('pointermove', (ev) => {
+    if (touches.has(ev.pointerId)) {
+      touches.set(ev.pointerId, {x: ev.clientX, y: ev.clientY});
+      if (PINCH && touches.size >= 2) {
+        const [p, q] = [...touches.values()];
+        const dist = Math.max(10, Math.hypot(p.x - q.x, p.y - q.y));
+        const span = clampSpan(PINCH.span * PINCH.dist / dist);
+        applyView(fromFor(PINCH.a, frac(PINCH.id, (p.x + q.x) / 2), span), span);
+      }
+    } else if (DRAG) {
+      const dx = ev.clientX - DRAG.x;
+      if (!DRAG.moved && Math.abs(dx) < 4) return;
+      if (!DRAG.moved) { DRAG.moved = true; hideTips(); document.body.style.cursor = 'grabbing'; }
+      const g = GEO[DRAG.id]; const svg = document.querySelector('#grafica-' + DRAG.id + ' svg');
+      const w = svg ? svg.getBoundingClientRect().width : g.W;
+      const df = dx * g.W / (w || g.W) / g.PW;
+      applyView(DRAG.v.from - df * (DRAG.v.span + 2 * PAD), DRAG.v.span);
+    }
+  });
+  const endPointer = (ev) => {
+    touches.delete(ev.pointerId);
+    if (touches.size < 2) PINCH = null;
+    if (DRAG && ev.pointerType === 'mouse') { DRAG = null; document.body.style.cursor = ''; }
+    scheduleTable();
+  };
+  window.addEventListener('pointerup', endPointer);
+  window.addEventListener('pointercancel', endPointer);
+
+  let frame = 0, tableT;
+  function schedule() {
+    if (frame) return;
+    frame = requestAnimationFrame(() => { frame = 0; renderCharts(); scheduleTable(); });
+  }
+  function scheduleTable() { clearTimeout(tableT); tableT = setTimeout(drawTable, 300); }
+
+  function renderCharts() {
     syncControls();
     const R = range();
     if (R) { const n = d3.utcDay.count(R.from, R.to) + 1; document.getElementById('rango').textContent = `${F.short(R.from)} – ${F.short(R.to)} (${n} ${n === 1 ? 'día' : 'días'})`; }
+    HIDERS = [];
     drawCharts();
+  }
+  function render() {
+    renderCharts();
     drawTable();
   }
 
