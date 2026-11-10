@@ -220,16 +220,21 @@ button:focus-visible, .sen-chip input:focus-visible + span, .sen-dl:focus-visibl
   let ROWS = [];
   const checks = Array.from(document.querySelectorAll('#magnitudes input[type=checkbox]'));
   const ORDER = checks.map((c) => c.value);
-  // Color fijo por magnitud dentro de su gráfica: no cambia al marcar o desmarcar otras.
-  // Pasados los 8 colores, la serie repite color con línea discontinua para distinguirla.
   const UNIT = (k) => k === 'Afectación / demanda' ? 'pct' : k === 'Día anterior: solar (MWh)' ? 'mwh' : (k === 'Nº en avería' || k === 'Nº en mantenimiento') ? 'n' : 'mw';
-  const SLOT = {}, DASH = {}, perUnit = {};
-  ORDER.forEach((k) => {
-    const u = UNIT(k); const i = perUnit[u] = (perUnit[u] ?? -1) + 1;
-    SLOT[k] = (i % 8) + 1; DASH[k] = i >= 8;
-  });
-  const color = (k) => `var(--s${SLOT[k]})`;
-  checks.forEach((c) => c.parentElement.style.setProperty('--chip', color(c.value)));
+  // Colores dinámicos: cada magnitud que se marca toma el primer color libre de los 8.
+  // Al desmarcarla, su color queda libre; las demás conservan el suyo.
+  // Desde la novena magnitud marcada a la vez, los colores se repiten con línea discontinua.
+  const POS = {};
+  const assign = (k) => {
+    const used = new Set(Object.values(POS));
+    let i = 0; while (used.has(i)) i++;
+    POS[k] = i;
+  };
+  const color = (k) => `var(--s${((POS[k] ?? 0) % 8) + 1})`;
+  const dashed = (k) => (POS[k] ?? 0) >= 8;
+  const paintChips = () => checks.forEach((c) => c.parentElement.style.setProperty('--chip', c.checked ? color(c.value) : 'transparent'));
+  checks.forEach((c) => { if (c.checked) assign(c.value); });
+  paintChips();
   const LABEL = {};
   document.querySelectorAll('#magnitudes label.sen-chip').forEach((l) => {
     const k = l.querySelector('input').value;
@@ -272,7 +277,10 @@ button:focus-visible, .sen-chip input:focus-visible + span, .sen-dl:focus-visibl
     });
     el.addEventListener('blur', syncControls);
   });
-  checks.forEach((c) => c.addEventListener('change', render));
+  checks.forEach((c) => c.addEventListener('change', () => {
+    if (c.checked) assign(c.value); else delete POS[c.value];
+    paintChips(); render();
+  }));
   let resizeT;
   window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(render, 150); });
 
@@ -355,7 +363,7 @@ button:focus-visible, .sen-chip input:focus-visible + span, .sen-dl:focus-visibl
       series.forEach((s) => {
         const li = document.createElement('li');
         const sw = document.createElement('span'); sw.className = 'sw';
-        sw.style.background = DASH[s.k] ? `repeating-linear-gradient(90deg, ${color(s.k)} 0 5px, transparent 5px 8px)` : color(s.k);
+        sw.style.background = dashed(s.k) ? `repeating-linear-gradient(90deg, ${color(s.k)} 0 5px, transparent 5px 8px)` : color(s.k);
         const nm = document.createElement('span'); nm.textContent = LABEL[s.k];
         const lastP = s.pts[s.pts.length - 1];
         const lv = document.createElement('span'); lv.className = 'lv';
@@ -370,7 +378,7 @@ button:focus-visible, .sen-chip input:focus-visible + span, .sen-dl:focus-visibl
         if (s.pts.length > 1) {
           const path = gS.append('path').attr('fill', 'none').attr('stroke-width', 2).attr('stroke-linejoin', 'round').attr('stroke-linecap', 'round')
             .style('stroke', color(s.k)).attr('d', line(s.pts));
-          if (DASH[s.k]) path.attr('stroke-dasharray', '6 4');
+          if (dashed(s.k)) path.attr('stroke-dasharray', '6 4');
           else if (!reduce && !drawnOnce) {
             const L = path.node().getTotalLength();
             if (L) path.attr('stroke-dasharray', `${L} ${L}`).attr('stroke-dashoffset', L).transition().duration(700).ease(d3.easeCubicOut).attr('stroke-dashoffset', 0)
