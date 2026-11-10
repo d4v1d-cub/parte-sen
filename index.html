@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parte diario del SEN</title>
+<meta name="description" content="Evolución diaria del Sistema Eléctrico Nacional de Cuba según el parte de la Unión Eléctrica: demanda, disponibilidad, déficit y afectación.">
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #fcfcfb;
+  --panel: #f3f2ef;
+  --fg: #0b0b0b;
+  --fg-2: #52514e;
+  --fg-3: #75736e;
+  --line: #dddbd5;
+  --grid: #ebe9e4;
+  --axis: #bdbab3;
+  --ref: #8a877f;
+  --pop: #ffffff;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
+  --radius: 8px;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: Georgia, "Times New Roman", serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #1a1a19; --panel: #232321; --fg: #f0efec; --fg-2: #c3c2b7; --fg-3: #9a988f;
+    --line: #3a3936; --grid: #2c2b29; --axis: #55534e; --ref: #8f8c84; --pop: #262624;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); line-height: 1.45; }
+.sen { max-width: 1120px; margin: 0 auto; padding: 28px 20px 48px; display: grid; gap: 22px; }
+.sen-title { font-family: var(--serif); font-weight: 400; font-size: clamp(1.7rem, 4vw, 2.3rem); margin: 0 0 6px; text-wrap: balance; }
+.sen-lede { margin: 0; color: var(--fg-2); font-size: 1rem; max-width: 70ch; }
+.sen-lede b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.sen-bar { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; justify-content: space-between; }
+.sen-range { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.sen-seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.sen-seg button { font: inherit; font-size: .82rem; padding: 7px 11px; border: 0; background: var(--bg); color: var(--fg); cursor: pointer; }
+.sen-seg button + button { border-left: 1px solid var(--line); }
+.sen-seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+button:focus-visible, .sen-chip input:focus-visible + span, .sen-dl:focus-visible, summary:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.sen-date { display: grid; gap: 2px; font-size: .78rem; color: var(--fg-2); }
+.sen-date input { font: inherit; font-size: .82rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 7px; }
+.sen-dl { display: inline-flex; align-items: center; gap: 6px; font-size: .82rem; font-weight: 600; padding: 8px 13px; border-radius: var(--radius); background: var(--fg); color: var(--bg); text-decoration: none; }
+.sen-pick { display: grid; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+.sen-pick fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.sen-pick legend { float: left; font-size: .72rem; color: var(--fg-2); letter-spacing: .05em; text-transform: uppercase; width: 9em; padding-top: 5px; }
+.sen-chip { position: relative; display: inline-flex; }
+.sen-chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.sen-chip span { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--fg-2); }
+.sen-chip span::before { content: ""; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--fg-3); }
+.sen-chip input:checked + span { color: var(--fg); border-color: var(--fg); }
+.sen-chip input:checked + span::before { background: var(--chip); border-color: var(--chip); }
+.sen-charts { display: grid; gap: 30px; min-height: 320px; }
+.sen-panel { min-width: 0; }
+.sen-panel h2 { margin: 0 0 6px; font-size: 1rem; font-weight: 600; }
+.sen-plot { display: grid; grid-template-columns: minmax(0, 1fr) minmax(170px, 230px); gap: 14px; align-items: start; }
+.sen-chart { position: relative; min-width: 0; }
+.sen-chart svg { display: block; width: 100%; height: 300px; overflow: visible; }
+.sen-chart .tick text { fill: var(--fg-2); font-size: 11px; font-family: var(--sans); }
+.sen-chart .tick line { stroke: var(--grid); }
+.sen-chart .domain { stroke: var(--axis); }
+.sen-legend { list-style: none; margin: 0; padding: 6px 0 0; display: grid; gap: 9px; font-size: .8rem; }
+.sen-legend li { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 8px; }
+.sen-legend .sw { height: 3px; border-radius: 2px; margin-top: 8px; }
+.sen-legend .lv { grid-column: 2; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) { .sen-plot { grid-template-columns: minmax(0, 1fr); } .sen-legend { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); padding-top: 0; } }
+@media (max-width: 560px) { .sen-pick legend { float: none; width: auto; } }
+.sen-tip { position: absolute; pointer-events: none; background: var(--pop); border: 1px solid var(--line); box-shadow: 0 4px 16px rgba(0,0,0,.12); border-radius: var(--radius); padding: 8px 10px; font-size: .78rem; min-width: 180px; z-index: 2; }
+.sen-tip .d { color: var(--fg-2); margin-bottom: 4px; }
+.sen-tip .r { display: flex; gap: 10px; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.sen-tip .r i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.sen-empty { color: var(--fg-2); padding: 24px 0; margin: 0; }
+.sen-table { font-size: .82rem; }
+.sen-table summary { cursor: pointer; color: var(--fg-2); }
+.sen-table .wrap { overflow-x: auto; margin-top: 10px; max-height: 420px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+.sen-table table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.sen-table th, .sen-table td { padding: 6px 10px; border-bottom: 1px solid var(--grid); text-align: right; white-space: nowrap; }
+.sen-table th { position: sticky; top: 0; background: var(--panel); font-weight: 600; color: var(--fg); }
+.sen-table th:first-child, .sen-table td:first-child { text-align: left; }
+.sen-foot { font-size: .8rem; color: var(--fg-2); max-width: 75ch; margin: 0; }
+.sen-foot a { color: inherit; }
+</style>
+</head>
+<body>
+<main class="sen">
+  <header>
+    <h1 class="sen-title">Parte diario del SEN</h1>
+    <p class="sen-lede" id="resumen">Cargando datos…</p>
+  </header>
+
+  <div class="sen-bar" id="controles">
+    <div class="sen-range">
+      <div class="sen-seg" role="group" aria-label="Período">
+        <button type="button" data-range="7" aria-pressed="false">7 días</button>
+        <button type="button" data-range="30" aria-pressed="false">30 días</button>
+        <button type="button" data-range="90" aria-pressed="false">90 días</button>
+        <button type="button" data-range="365" aria-pressed="false">1 año</button>
+        <button type="button" data-range="all" aria-pressed="true">Todo</button>
+      </div>
+      <label class="sen-date">Desde<input type="date" id="sen-desde"></label>
+      <label class="sen-date">Hasta<input type="date" id="sen-hasta"></label>
+    </div>
+    <a class="sen-dl" id="descargar" href="#" download="parte-diario-sen.csv">Descargar datos (CSV)</a>
+  </div>
+
+  <div class="sen-pick" id="magnitudes">
+    <fieldset><legend>Horario pico</legend>
+      <label class="sen-chip"><input type="checkbox" value="Demanda máx. pico (MW)" checked><span>Demanda</span></label>
+      <label class="sen-chip"><input type="checkbox" value="Disponibilidad pico (MW)" checked><span>Disponibilidad</span></label>
+      <label class="sen-chip"><input type="checkbox" value="Déficit pico (MW)"><span>Déficit</span></label>
+      <label class="sen-chip"><input type="checkbox" value="Afectación pronosticada pico (MW)" checked><span>Afectación pronosticada</span></label>
+      <label class="sen-chip"><input type="checkbox" value="Afectación / demanda"><span>Afectación / demanda (%)</span></label>
+      <label class="sen-chip"><input type="checkbox" value="Afectación pronosticada mediodía (MW)"><span>Afectación al mediodía</span></label>
+    </fieldset>
+    <fieldset><legend>Mañana (06:00)</legend>
+      <label class="sen-chip"><input type="checkbox" value="Mañana: disponibilidad (MW)"><span>Disponibilidad</span></label>
+      <label class="sen-chip"><input type="checkbox" value="Mañana: demanda (MW)"><span>Demanda</span></label>
+      <label class="sen-chip"><input type="checkbox" value="Mañana: afectación (MW)"><span>Afectación</span></label>
+    </fieldset>
+    <fieldset><legend>Día anterior</legend>
+      <label class="sen-chip"><input type="checkbox" value="Día anterior: afectación máx. (MW)"><span>Afectación máxima real</span></label>
+      <label class="sen-chip"><input type="checkbox" value="Día anterior: solar máx. (MW)"><span>Solar máxima (MW)</span></label>
+      <label class="sen-chip"><input type="checkbox" value="Día anterior: solar (MWh)"><span>Energía solar (MWh)</span></label>
+      <label class="sen-chip"><input type="checkbox" value="Día anterior: La Habana afectación máx. (MW)"><span>La Habana: afectación máx.</span></label>
+    </fieldset>
+    <fieldset><legend>Generación</legend>
+      <label class="sen-chip"><input type="checkbox" value="Limitaciones térmicas (MW)"><span>Limitaciones térmicas</span></label>
+      <label class="sen-chip"><input type="checkbox" value="Fuera de servicio por combustible (MW)"><span>Fuera por combustible</span></label>
+      <label class="sen-chip"><input type="checkbox" value="Solar instalado (MW)"><span>Solar instalado</span></label>
+      <label class="sen-chip"><input type="checkbox" value="Nº en avería"><span>Unidades en avería</span></label>
+      <label class="sen-chip"><input type="checkbox" value="Nº en mantenimiento"><span>Unidades en mantenimiento</span></label>
+    </fieldset>
+  </div>
+
+  <p class="sen-lede" id="periodo">Mostrando <b id="rango">—</b>.</p>
+
+  <div class="sen-charts" id="graficas"><p class="sen-empty">Cargando…</p></div>
+
+  <details class="sen-table" id="tabla">
+    <summary>Ver los datos del período en una tabla</summary>
+    <div class="wrap"></div>
+  </details>
+
+  <p class="sen-foot" id="nota">Cada fecha es la del parte de la Unión Eléctrica (UNE): el pronóstico es para ese día y las cifras de «Día anterior» corresponden al día previo. Los datos se toman del parte publicado en los canales de Telegram de la <a href="https://t.me/une_cuba" target="_blank" rel="noopener">Unión Eléctrica</a> y de la <a href="https://t.me/EmpresaElectricaDeLaHabana" target="_blank" rel="noopener">Empresa Eléctrica de La Habana</a>. Cuando un dato no aparece en ese parte, solo se incluye si lo corroboran dos fuentes diferentes. Los días sin un dato confirmado no tienen punto, y la línea une los puntos que sí lo tienen. Las magnitudes con unidades distintas (MW, MWh, % y número de unidades) se dibujan en gráficas separadas.</p>
+</main>
+
+<script>
+(() => {
+  const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSsAT2V9ZmFRAuERGl8SIXi3PxZC4v9OLcpAdN0kUU8Q6R2v2ugXxxrdKEmeOlygU0-4rv03MVNEOdh/pub?gid=0&single=true&output=csv';
+  document.getElementById('descargar').href = CSV_URL;
+
+  // ---------- Formatos en español ----------
+  const es = d3.timeFormatLocale({
+    dateTime: '%A, %e de %B de %Y, %X', date: '%d/%m/%Y', time: '%H:%M:%S', periods: ['AM', 'PM'],
+    days: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'],
+    shortDays: ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'],
+    months: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'],
+    shortMonths: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+  });
+  const F = {
+    long: es.utcFormat('%-d de %B de %Y'), tip: es.utcFormat('%A %-d %b %Y'),
+    short: es.utcFormat('%-d %b %Y'), day: es.utcFormat('%-d %b'), month: es.utcFormat('%b'), year: es.utcFormat('%Y')
+  };
+  const iso = d3.utcFormat('%Y-%m-%d');
+  const parseIso = (s) => { const d = new Date(s + 'T00:00:00Z'); return isNaN(d) ? null : d; };
+  const int = (v) => d3.format(',.0f')(v).replace(/,/g, ' ');
+  const pct = (v, dec = 1) => d3.format('.' + dec + '%')(v).replace('.', ',');
+
+  // ---------- Lectura de la hoja ----------
+  const TEXT_COLS = new Set(['Fecha del parte', 'Día', 'Entradas previstas para el pico', 'Lectura de la mañana: hora', 'Día anterior: hora de la máx.', 'Día anterior: período afectado', 'Día anterior: La Habana hora de la máx.', 'Unidades en avería', 'Unidades en mantenimiento', 'Unidades sin reporte', 'Fuente', 'Notas', 'Registrado']);
+  const toIso = (s) => {
+    s = String(s || '').trim();
+    let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+  };
+  const toNum = (s) => {
+    if (s == null) return null;
+    s = String(s).trim();
+    if (!s) return null;
+    const isPct = s.endsWith('%');
+    const n = Number(s.replace(/%$/, '').replace(/[,\s ]/g, ''));
+    if (!Number.isFinite(n)) return null;
+    return isPct ? n / 100 : n;
+  };
+  const load = async () => {
+    const res = await fetch(CSV_URL, {cache: 'no-store'});
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const table = d3.csvParseRows(await res.text());
+    if (!table.length) throw new Error('La hoja está vacía.');
+    const header = table[0].map((h) => String(h).trim());
+    const byDate = new Map();
+    for (const r of table.slice(1)) {
+      const fecha = toIso(r[0]);
+      if (!fecha) continue;
+      const o = {};
+      header.forEach((h, i) => {
+        if (!h) return;
+        if (h === 'Fecha del parte') o[h] = fecha;
+        else if (TEXT_COLS.has(h)) o[h] = r[i] ? String(r[i]) : null;
+        else o[h] = toNum(r[i]);
+      });
+      byDate.set(fecha, o);            // si una fecha se repite, vale la última fila
+    }
+    return Array.from(byDate.values()).sort((a, b) => (a['Fecha del parte'] < b['Fecha del parte'] ? -1 : 1));
+  };
+
+  // ---------- Estado y controles ----------
+  const S = {preset: 'all', from: null, to: null};
+  let ROWS = [];
+  const checks = Array.from(document.querySelectorAll('#magnitudes input[type=checkbox]'));
+  const ORDER = checks.map((c) => c.value);
+  // Color fijo por magnitud dentro de su gráfica: no cambia al marcar o desmarcar otras.
+  // Pasados los 8 colores, la serie repite color con línea discontinua para distinguirla.
+  const UNIT = (k) => k === 'Afectación / demanda' ? 'pct' : k === 'Día anterior: solar (MWh)' ? 'mwh' : (k === 'Nº en avería' || k === 'Nº en mantenimiento') ? 'n' : 'mw';
+  const SLOT = {}, DASH = {}, perUnit = {};
+  ORDER.forEach((k) => {
+    const u = UNIT(k); const i = perUnit[u] = (perUnit[u] ?? -1) + 1;
+    SLOT[k] = (i % 8) + 1; DASH[k] = i >= 8;
+  });
+  const color = (k) => `var(--s${SLOT[k]})`;
+  checks.forEach((c) => c.parentElement.style.setProperty('--chip', color(c.value)));
+  const LABEL = {};
+  document.querySelectorAll('#magnitudes label.sen-chip').forEach((l) => {
+    const k = l.querySelector('input').value;
+    const leg = l.closest('fieldset').querySelector('legend').textContent;
+    LABEL[k] = leg + ': ' + l.querySelector('span').textContent;
+  });
+  const selected = () => checks.filter((c) => c.checked).map((c) => c.value);
+
+  const range = () => {
+    if (!ROWS.length) return null;
+    const first = parseIso(ROWS[0]['Fecha del parte']);
+    const last = parseIso(ROWS[ROWS.length - 1]['Fecha del parte']);
+    let from, to;
+    if (S.preset === 'custom') {
+      from = S.from ? parseIso(S.from) : first; to = S.to ? parseIso(S.to) : last;
+      if (from > to) [from, to] = [to, from];
+    } else if (S.preset === 'all') { from = first; to = last; }
+    else { to = last; from = d3.utcDay.offset(last, -(Number(S.preset) - 1)); }
+    return {from, to};
+  };
+
+  const syncControls = () => {
+    document.querySelectorAll('.sen-seg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.range === S.preset)));
+    const R = range();
+    if (!R) return;
+    const d1 = document.getElementById('sen-desde'), d2 = document.getElementById('sen-hasta');
+    if (document.activeElement !== d1) d1.value = iso(R.from);
+    if (document.activeElement !== d2) d2.value = iso(R.to);
+  };
+
+  document.querySelectorAll('.sen-seg button').forEach((b) => b.addEventListener('click', () => {
+    S.preset = b.dataset.range; S.from = null; S.to = null; render();
+  }));
+  document.querySelectorAll('#sen-desde, #sen-hasta').forEach((el) => {
+    el.addEventListener('change', () => {
+      const d1 = document.getElementById('sen-desde').value, d2 = document.getElementById('sen-hasta').value;
+      const ok = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) && Number(v.slice(0, 4)) >= 2000;
+      if (!ok(el.value)) return;
+      S.preset = 'custom'; S.from = ok(d1) ? d1 : null; S.to = ok(d2) ? d2 : null; render();
+    });
+    el.addEventListener('blur', syncControls);
+  });
+  checks.forEach((c) => c.addEventListener('change', render));
+  let resizeT;
+  window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(render, 150); });
+
+  // ---------- Resumen ----------
+  const drawSummary = () => {
+    const el = document.getElementById('resumen');
+    el.replaceChildren();
+    const r = [...ROWS].reverse().find((x) => x['Afectación pronosticada pico (MW)'] != null);
+    if (!r) { el.textContent = 'Todavía no hay partes con afectación pronosticada.'; return; }
+    const b = (t) => { const e = document.createElement('b'); e.textContent = t; return e; };
+    const parts = ['El parte más reciente, del ', b(F.long(parseIso(r['Fecha del parte']))), ', pronostica ',
+      b(int(r['Afectación pronosticada pico (MW)']) + ' MW'), ' de afectación en el horario pico'];
+    if (r['Afectación / demanda'] != null) parts.push(', ', b(pct(r['Afectación / demanda'])), ' de la demanda prevista');
+    parts.push('.');
+    el.append(...parts);
+  };
+
+  // ---------- Gráficas ----------
+  const GROUPS = [
+    {id: 'mw', title: 'Potencia (MW)', fmt: (v) => int(v) + ' MW', axis: int},
+    {id: 'mwh', title: 'Energía solar del día anterior (MWh)', fmt: (v) => int(v) + ' MWh', axis: int},
+    {id: 'pct', title: 'Afectación pronosticada como parte de la demanda (%)', fmt: (v) => pct(v), axis: (v) => pct(v, 0)},
+    {id: 'n', title: 'Unidades térmicas fuera de servicio', fmt: (v) => d3.format('d')(v), axis: d3.format('d')}
+  ];
+  const H = 300, M = {top: 12, right: 14, bottom: 28};
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let drawnOnce = false;
+  const tickFmt = (d) => d3.utcMonth(d) < d ? F.day(d) : d3.utcYear(d) < d ? F.month(d) : F.year(d);
+
+  const drawCharts = () => {
+    const el = document.getElementById('graficas');
+    el.replaceChildren();
+    const R = range();
+    const keys = selected();
+    const msg = (t) => { const p = document.createElement('p'); p.className = 'sen-empty'; p.textContent = t; el.append(p); };
+    if (!R) return msg('No hay datos todavía.');
+    if (!keys.length) return msg('Elige al menos una magnitud para dibujarla.');
+    const vis = ROWS.map((r) => ({r, d: parseIso(r['Fecha del parte'])})).filter((o) => o.d >= R.from && o.d <= R.to);
+    if (!vis.length) return msg('No hay partes en el período elegido.');
+
+    for (const G of GROUPS) {
+      const ks = keys.filter((k) => UNIT(k) === G.id);
+      if (!ks.length) continue;
+      const panel = document.createElement('section'); panel.className = 'sen-panel'; panel.id = 'grafica-' + G.id;
+      const h2 = document.createElement('h2'); h2.textContent = G.title; panel.append(h2);
+      const plot = document.createElement('div'); plot.className = 'sen-plot';
+      const box = document.createElement('div'); box.className = 'sen-chart';
+      const leg = document.createElement('ul'); leg.className = 'sen-legend'; leg.setAttribute('aria-label', 'Leyenda');
+      plot.append(box, leg); panel.append(plot); el.append(panel);
+
+      const W = Math.max(260, box.clientWidth || el.clientWidth || 600);
+      const svg = d3.select(box).append('svg').attr('viewBox', `0 0 ${W} ${H}`).attr('preserveAspectRatio', 'none')
+        .attr('role', 'img').attr('aria-label', `${G.title}: ${ks.map((k) => LABEL[k]).join(', ')}, del ${F.short(R.from)} al ${F.short(R.to)}`);
+
+      // Cada serie solo con los días que tienen dato: así los puntos consecutivos quedan unidos.
+      const series = ks.map((k) => ({k, pts: vis.filter((o) => o.r[k] != null).map((o) => ({d: o.d, v: o.r[k]}))}));
+      const vals = series.flatMap((s) => s.pts.map((p) => p.v));
+      const maxV = vals.length ? d3.max(vals) : 1, minV = vals.length ? d3.min(vals) : 0;
+      const y = d3.scaleLinear().domain([Math.min(0, minV), (maxV * 1.06) || 1]).nice().range([H - M.bottom, M.top]);
+      if (G.id === 'n') y.domain([0, Math.max(1, Math.ceil(maxV * 1.1))]);
+
+      const yTicks = y.ticks(5);
+      const meas = svg.append('g').attr('class', 'tick');
+      let left = 0;
+      yTicks.forEach((t) => { const tx = meas.append('text').text(G.axis(t)); left = Math.max(left, tx.node().getComputedTextLength() || G.axis(t).length * 7); });
+      meas.remove();
+      const ML = Math.ceil(left) + 10;
+
+      const x = d3.scaleUtc().domain([d3.utcHour.offset(R.from, -12), d3.utcHour.offset(R.to, 12)]).range([ML, W - M.right]);
+      const nT = Math.max(2, Math.floor((W - ML - M.right) / 78));
+      let ticks = x.ticks(nT).filter((d) => d.getUTCHours() === 0 && d >= R.from && d <= R.to);
+      if (!ticks.length) ticks = [R.from];
+
+      svg.append('g').attr('transform', `translate(${ML},0)`)
+        .call(d3.axisLeft(y).tickValues(yTicks).tickFormat(G.axis).tickSize(-(W - ML - M.right)))
+        .call((s) => s.select('.domain').remove());
+      svg.append('g').attr('transform', `translate(0,${H - M.bottom})`)
+        .call(d3.axisBottom(x).tickValues(ticks).tickFormat(tickFmt).tickSizeOuter(0));
+
+      series.forEach((s) => {
+        const li = document.createElement('li');
+        const sw = document.createElement('span'); sw.className = 'sw';
+        sw.style.background = DASH[s.k] ? `repeating-linear-gradient(90deg, ${color(s.k)} 0 5px, transparent 5px 8px)` : color(s.k);
+        const nm = document.createElement('span'); nm.textContent = LABEL[s.k];
+        const lastP = s.pts[s.pts.length - 1];
+        const lv = document.createElement('span'); lv.className = 'lv';
+        lv.textContent = lastP ? `${G.fmt(lastP.v)} el ${F.day(lastP.d)}` : 'sin datos en el período';
+        li.append(sw, nm, lv); leg.append(li);
+      });
+
+      const line = d3.line().x((p) => x(p.d)).y((p) => y(p.v));
+      const gS = svg.append('g');
+      const rad = vis.length > 120 ? 1.6 : 3;
+      series.forEach((s) => {
+        if (s.pts.length > 1) {
+          const path = gS.append('path').attr('fill', 'none').attr('stroke-width', 2).attr('stroke-linejoin', 'round').attr('stroke-linecap', 'round')
+            .style('stroke', color(s.k)).attr('d', line(s.pts));
+          if (DASH[s.k]) path.attr('stroke-dasharray', '6 4');
+          else if (!reduce && !drawnOnce) {
+            const L = path.node().getTotalLength();
+            if (L) path.attr('stroke-dasharray', `${L} ${L}`).attr('stroke-dashoffset', L).transition().duration(700).ease(d3.easeCubicOut).attr('stroke-dashoffset', 0)
+              .on('end', function () { d3.select(this).attr('stroke-dasharray', null); });
+          }
+        }
+        gS.append('g').selectAll('circle').data(s.pts).join('circle')
+          .attr('cx', (p) => x(p.d)).attr('cy', (p) => y(p.v)).attr('r', rad)
+          .style('fill', color(s.k)).style('stroke', 'var(--bg)').attr('stroke-width', 1);
+      });
+
+      // Cruz y descripción emergente.
+      const guide = svg.append('line').attr('y1', M.top).attr('y2', H - M.bottom).style('stroke', 'var(--ref)').attr('stroke-dasharray', '3 3').attr('opacity', 0);
+      const tip = document.createElement('div'); tip.className = 'sen-tip'; tip.hidden = true; box.append(tip);
+      const dates = vis.map((o) => o.d);
+      const bis = d3.bisector((d) => d).center;
+      const show = (ev) => {
+        const [mx] = d3.pointer(ev, svg.node());
+        const scale = W / (svg.node().getBoundingClientRect().width || W);
+        const o = vis[bis(dates, x.invert(mx))]; if (!o) return;
+        const px = x(o.d);
+        guide.attr('x1', px).attr('x2', px).attr('opacity', 1);
+        tip.replaceChildren();
+        const dd = document.createElement('div'); dd.className = 'd'; dd.textContent = F.tip(o.d); tip.append(dd);
+        ks.forEach((k) => {
+          const row = document.createElement('div'); row.className = 'r';
+          const a = document.createElement('span'); const dot = document.createElement('i'); dot.style.background = color(k);
+          a.append(dot, document.createTextNode(LABEL[k]));
+          const b = document.createElement('span'); b.textContent = o.r[k] == null ? 'sin dato' : G.fmt(o.r[k]);
+          row.append(a, b); tip.append(row);
+        });
+        tip.hidden = false;
+        const pw = box.clientWidth, tw = tip.offsetWidth, sx = px / scale;
+        tip.style.left = (sx + 12 + tw > pw ? Math.max(0, sx - tw - 12) : sx + 12) + 'px';
+        tip.style.top = '8px';
+      };
+      svg.append('rect').attr('x', ML).attr('y', M.top).attr('width', W - ML - M.right).attr('height', H - M.top - M.bottom)
+        .attr('fill', 'transparent').style('cursor', 'crosshair')
+        .on('pointermove', show).on('pointerdown', show)
+        .on('pointerleave', () => { guide.attr('opacity', 0); tip.hidden = true; });
+    }
+    drawnOnce = true;
+  };
+
+  // ---------- Tabla ----------
+  const drawTable = () => {
+    const wrap = document.querySelector('#tabla .wrap');
+    wrap.replaceChildren();
+    const R = range(); const keys = selected();
+    if (!R || !keys.length) return;
+    const rows = ROWS.filter((r) => { const d = parseIso(r['Fecha del parte']); return d >= R.from && d <= R.to; }).reverse();
+    const t = document.createElement('table');
+    const thead = t.createTHead().insertRow();
+    ['Fecha', ...keys.map((k) => LABEL[k])].forEach((h) => { const th = document.createElement('th'); th.textContent = h; thead.append(th); });
+    const tb = t.createTBody();
+    rows.forEach((r) => {
+      const tr = tb.insertRow();
+      tr.insertCell().textContent = F.short(parseIso(r['Fecha del parte']));
+      keys.forEach((k) => {
+        const v = r[k]; const G = GROUPS.find((g) => g.id === UNIT(k));
+        tr.insertCell().textContent = v == null ? '—' : G.fmt(v);
+      });
+    });
+    wrap.append(t);
+  };
+
+  function render() {
+    syncControls();
+    const R = range();
+    if (R) { const n = d3.utcDay.count(R.from, R.to) + 1; document.getElementById('rango').textContent = `${F.short(R.from)} – ${F.short(R.to)} (${n} ${n === 1 ? 'día' : 'días'})`; }
+    drawCharts();
+    drawTable();
+  }
+
+  load().then((rows) => { ROWS = rows; drawSummary(); render(); })
+    .catch((e) => {
+      document.getElementById('resumen').textContent = 'No se pudieron cargar los datos de la hoja (' + e.message + '). Inténtalo de nuevo en unos minutos.';
+      document.getElementById('graficas').replaceChildren();
+    });
+})();
+</script>
+</body>
+</html>
