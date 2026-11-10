@@ -8,14 +8,14 @@ Página web que muestra la evolución diaria del Sistema Eléctrico Nacional (SE
 
 - **Resumen:** la afectación pronosticada en el parte más reciente y qué parte de la demanda prevista representa.
 - **Período:** botones para los últimos 7 días, 30 días, 90 días, 1 año o todo el registro, y fechas «Desde» y «Hasta» para elegir un intervalo concreto.
-- **Magnitudes:** se eligen las que se quieren graficar, agrupadas en *Horario pico*, *Mañana (06:00)*, *Día anterior* y *Generación*.
+- **Magnitudes:** se eligen las que se quieren graficar, agrupadas en *Horario pico*, *Mañana (06:00)*, *Datos reales* y *Generación*.
 - **Gráficas:** una por tipo de unidad (MW, MWh, porcentaje y número de unidades), con el valor de cada día al pasar el ratón o tocar la gráfica. Los colores se asignan según las magnitudes marcadas. A partir de la novena magnitud marcada a la vez, los colores se repiten con línea discontinua.
 - **Tabla:** los datos del período elegido, en una tabla desplegable.
 - **Descarga:** los datos completos en formato CSV.
 
 ## De dónde salen los datos
 
-Cada fecha corresponde a un parte de la UNE: el pronóstico es para ese día, y las cifras de «Día anterior» son del día previo.
+Las cifras de cada fecha se refieren a ese día. El pronóstico sale del parte de la UNE de esa fecha. Los datos reales (afectación máxima, energía solar y afectación en La Habana) salen del parte del día siguiente, que los informa como «día anterior». Así, el pronóstico y lo que de verdad ocurrió quedan en la misma fecha.
 
 Los datos se toman del parte publicado en los canales de Telegram de la [Unión Eléctrica](https://t.me/une_cuba) y de la [Empresa Eléctrica de La Habana](https://t.me/EmpresaElectricaDeLaHabana). Cuando un dato no aparece en ese parte, solo se incluye si lo corroboran dos fuentes diferentes. Si un dato no puede confirmarse, ese día queda sin valor, y la línea de la gráfica une los puntos de los días que sí lo tienen.
 
